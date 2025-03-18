@@ -8,6 +8,7 @@ import torch
 IS_DUPLICATE = not os.getenv('SPACE_ID', '').startswith('hexgrad/')
 CUDA_AVAILABLE = torch.cuda.is_available()
 if not IS_DUPLICATE:
+    import kokoro
     import misaki
     print('DEBUG', kokoro.__version__, CUDA_AVAILABLE, misaki.__version__)
 
