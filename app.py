@@ -1,4 +1,6 @@
 import spaces
+import misaki
+print(misaki.__version__)
 from kokoro import KModel, KPipeline
 import gradio as gr
 import os
