@@ -9,7 +9,7 @@ IS_DUPLICATE = not os.getenv('SPACE_ID', '').startswith('hexgrad/')
 CUDA_AVAILABLE = torch.cuda.is_available()
 if not IS_DUPLICATE:
     import misaki
-    print('DEBUG', CUDA_AVAILABLE, misaki.__version__)
+    print('DEBUG', kokoro.__version__, CUDA_AVAILABLE, misaki.__version__)
 
 CHAR_LIMIT = None if IS_DUPLICATE else 5000
 models = {gpu: KModel().to('cuda' if gpu else 'cpu').eval() for gpu in [False] + ([True] if CUDA_AVAILABLE else [])}
