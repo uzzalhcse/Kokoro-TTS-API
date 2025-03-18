@@ -1,6 +1,4 @@
 import spaces
-import misaki
-print(misaki.__version__)
 from kokoro import KModel, KPipeline
 import gradio as gr
 import os
@@ -8,9 +6,12 @@ import random
 import torch
 
 IS_DUPLICATE = not os.getenv('SPACE_ID', '').startswith('hexgrad/')
-CHAR_LIMIT = None if IS_DUPLICATE else 5000
-
 CUDA_AVAILABLE = torch.cuda.is_available()
+if not IS_DUPLICATE:
+    import misaki
+    print('DEBUG', CUDA_AVAILABLE, misaki.__version__)
+
+CHAR_LIMIT = None if IS_DUPLICATE else 5000
 models = {gpu: KModel().to('cuda' if gpu else 'cpu').eval() for gpu in [False] + ([True] if CUDA_AVAILABLE else [])}
 pipelines = {lang_code: KPipeline(lang_code=lang_code, model=False) for lang_code in 'ab'}
 pipelines['a'].g2p.lexicon.golds['kokoro'] = 'kˈOkəɹO'
