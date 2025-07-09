@@ -13,7 +13,8 @@ import json
 import re
 from datetime import datetime
 import urllib.parse
-
+from pydub import AudioSegment
+import tempfile
 app = Flask(__name__)
 CORS(app)  # Enable CORS for all routes
 
@@ -84,13 +85,28 @@ def sanitize_filename(filename):
     if not sanitized or len(sanitized) > 200:
         sanitized = f"kokoro_tts_{int(datetime.now().timestamp())}.wav"
 
-    # Ensure it ends with .wav
-    if not sanitized.endswith('.wav'):
+    # Ensure it ends with proper audio extension
+    if not (sanitized.endswith('.wav') or sanitized.endswith('.mp3')):
+        # Default to .wav if no extension or wrong extension
         sanitized = sanitized.rsplit('.', 1)[0] + '.wav'
 
     return sanitized
 
 
+def audio_to_mp3_bytes(audio_array, sample_rate=24000):
+    """Convert audio array to MP3 bytes"""
+    # First convert to WAV in memory
+    wav_buffer = audio_to_wav_bytes(audio_array, sample_rate)
+
+    # Load WAV data into AudioSegment
+    audio_segment = AudioSegment.from_wav(wav_buffer)
+
+    # Export to MP3
+    mp3_buffer = io.BytesIO()
+    audio_segment.export(mp3_buffer, format="mp3", bitrate="128k")
+    mp3_buffer.seek(0)
+
+    return mp3_buffer
 def parse_voice_blend(voice_string):
     """
     Parse voice blend string like "af_nicole(1)+am_michael(1)" or "af_heart(2)+bf_emma(1)+am_liam(0.5)"
@@ -252,6 +268,11 @@ def home():
             "example": "af_nicole(1)+am_michael(1)",
             "limitations": "Voices must be from the same language (a* or b*)"
         },
+        "response_format": {
+            "description": "Output format for audio",
+            "options": ["mp3", "wav", "base64"],
+            "default": "mp3"
+        },
         "endpoints": {
             "/synthesize": "POST - Generate speech from text (supports voice blending)",
             "/voices": "GET - List available voices",
@@ -378,8 +399,22 @@ def synthesize():
                 "speed": speed,
                 "text": text
             })
+        elif output_format == 'mp3':
+            # Return MP3 audio file
+            mp3_buffer = audio_to_mp3_bytes(audio_array)
+
+            # Create and sanitize filename
+            raw_filename = f'kokoro_tts_{voice}_{int(datetime.now().timestamp())}.mp3'
+            safe_filename = sanitize_filename(raw_filename)
+
+            return send_file(
+                mp3_buffer,
+                mimetype='audio/mpeg',
+                as_attachment=True,
+                download_name=safe_filename
+            )
         else:
-            # Return audio file with sanitized filename
+            # Default to WAV format
             wav_buffer = audio_to_wav_bytes(audio_array)
 
             # Create and sanitize filename
@@ -455,7 +490,7 @@ def random_quote():
 
 @app.route('/v1/batch-synthesize', methods=['POST'])
 def batch_synthesize():
-    """Synthesize multiple texts at once (supports voice blending)"""
+    """Synthesize multiple texts at once (supports voice blending and MP3/WAV formats)"""
     try:
         data = request.get_json()
 
@@ -466,12 +501,17 @@ def batch_synthesize():
         voice = data.get('voice', 'af_heart')
         speed = data.get('speed', 1.0)
         use_gpu = data.get('use_gpu', CUDA_AVAILABLE)
+        output_format = data.get('response_format', 'mp3')  # Default to mp3
 
         if not isinstance(texts, list):
             return jsonify({"error": "'texts' must be an array"}), 400
 
         if len(texts) > 10:  # Limit batch size
             return jsonify({"error": "Maximum 10 texts per batch"}), 400
+
+        # Validate output format
+        if output_format not in ['mp3', 'wav', 'base64']:
+            return jsonify({"error": "Invalid response_format. Must be 'mp3', 'wav', or 'base64'"}), 400
 
         # Validate voice blend once
         is_valid, validation_result = validate_voice_blend(voice)
@@ -483,15 +523,41 @@ def batch_synthesize():
             try:
                 audio_array, tokens = generate_audio(text, voice, speed, use_gpu)
                 if audio_array is not None:
-                    wav_buffer = audio_to_wav_bytes(audio_array)
-                    audio_b64 = base64.b64encode(wav_buffer.read()).decode('utf-8')
-                    results.append({
-                        "index": i,
-                        "success": True,
-                        "audio_base64": audio_b64,
-                        "tokens": tokens,
-                        "text": text
-                    })
+
+                    # Handle different output formats
+                    if output_format == 'mp3':
+                        mp3_buffer = audio_to_mp3_bytes(audio_array)
+                        audio_b64 = base64.b64encode(mp3_buffer.read()).decode('utf-8')
+                        results.append({
+                            "index": i,
+                            "success": True,
+                            "audio_base64": audio_b64,
+                            "tokens": tokens,
+                            "text": text,
+                            "format": "mp3"
+                        })
+                    elif output_format == 'wav':
+                        wav_buffer = audio_to_wav_bytes(audio_array)
+                        audio_b64 = base64.b64encode(wav_buffer.read()).decode('utf-8')
+                        results.append({
+                            "index": i,
+                            "success": True,
+                            "audio_base64": audio_b64,
+                            "tokens": tokens,
+                            "text": text,
+                            "format": "wav"
+                        })
+                    else:  # base64 (legacy WAV base64)
+                        wav_buffer = audio_to_wav_bytes(audio_array)
+                        audio_b64 = base64.b64encode(wav_buffer.read()).decode('utf-8')
+                        results.append({
+                            "index": i,
+                            "success": True,
+                            "audio_base64": audio_b64,
+                            "tokens": tokens,
+                            "text": text,
+                            "format": "wav"
+                        })
                 else:
                     results.append({
                         "index": i,
@@ -515,7 +581,10 @@ def batch_synthesize():
                 "is_blended": len(validation_result) > 1
             },
             "speed": speed,
-            "sample_rate": 24000
+            "sample_rate": 24000,
+            "response_format": output_format,
+            "total_requests": len(texts),
+            "successful_requests": len([r for r in results if r.get("success", False)])
         })
 
     except Exception as e:
