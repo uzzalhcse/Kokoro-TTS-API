@@ -12,6 +12,7 @@ import base64
 import json
 import re
 from datetime import datetime
+import urllib.parse
 
 app = Flask(__name__)
 CORS(app)  # Enable CORS for all routes
@@ -66,6 +67,28 @@ CHOICES = {
 # Pre-load voices
 for voice_id in CHOICES.keys():
     pipelines[voice_id[0]].load_voice(voice_id)
+
+
+def sanitize_filename(filename):
+    """
+    Sanitize filename to prevent header injection and ensure valid HTTP headers.
+    Removes newlines, carriage returns, and other problematic characters.
+    """
+    # Remove newlines, carriage returns, and other control characters
+    sanitized = re.sub(r'[\r\n\t\f\v\x00-\x1f\x7f-\x9f]', '', filename)
+
+    # Replace problematic characters with underscores
+    sanitized = re.sub(r'[^\w\-_.]', '_', sanitized)
+
+    # Ensure it's not empty and has reasonable length
+    if not sanitized or len(sanitized) > 200:
+        sanitized = f"kokoro_tts_{int(datetime.now().timestamp())}.wav"
+
+    # Ensure it ends with .wav
+    if not sanitized.endswith('.wav'):
+        sanitized = sanitized.rsplit('.', 1)[0] + '.wav'
+
+    return sanitized
 
 
 def parse_voice_blend(voice_string):
@@ -221,7 +244,7 @@ def home():
     """API information"""
     return jsonify({
         "service": "Kokoro-TTS REST API with Voice Blending",
-        "version": "2.0.0",
+        "version": "2.0.1",
         "description": "Text-to-Speech API using Kokoro-82M model with voice blending support",
         "voice_blending": {
             "description": "Mix multiple voices to create custom blended voices",
@@ -356,14 +379,18 @@ def synthesize():
                 "text": text
             })
         else:
-            # Return audio file
+            # Return audio file with sanitized filename
             wav_buffer = audio_to_wav_bytes(audio_array)
-            blend_name = voice.replace('(', '_').replace(')', '').replace('+', '_')
+
+            # Create and sanitize filename
+            raw_filename = f'kokoro_tts_{voice}_{int(datetime.now().timestamp())}.wav'
+            safe_filename = sanitize_filename(raw_filename)
+
             return send_file(
                 wav_buffer,
                 mimetype='audio/wav',
                 as_attachment=True,
-                download_name=f'kokoro_tts_{blend_name}_{int(datetime.now().timestamp())}.wav'
+                download_name=safe_filename
             )
 
     except Exception as e:
