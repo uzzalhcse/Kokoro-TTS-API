@@ -253,7 +253,7 @@ def health_check():
     })
 
 
-@app.route('/voices', methods=['GET'])
+@app.route('/v1/voices', methods=['GET'])
 def get_voices():
     """Get available voices"""
     return jsonify({
@@ -274,7 +274,7 @@ def get_voices():
     })
 
 
-@app.route('/validate-blend', methods=['POST'])
+@app.route('/v1/validate-blend', methods=['POST'])
 def validate_blend():
     """Validate voice blend string"""
     try:
@@ -302,21 +302,21 @@ def validate_blend():
         return jsonify({"error": str(e)}), 500
 
 
-@app.route('/synthesize', methods=['POST'])
+@app.route('/v1/audio/speech', methods=['POST'])
 def synthesize():
     """Synthesize speech from text (supports voice blending)"""
     try:
         data = request.get_json()
 
         # Validate input
-        if not data or 'text' not in data:
-            return jsonify({"error": "Missing 'text' parameter"}), 400
+        if not data or 'input' not in data:
+            return jsonify({"error": "Missing 'input' parameter"}), 400
 
         text = data['input']
         voice = data.get('voice', 'af_heart')
         speed = data.get('speed', 1.0)
         use_gpu = data.get('use_gpu', CUDA_AVAILABLE)
-        output_format = data.get('response_format', 'audio')  # 'audio' or 'base64'
+        output_format = data.get('response_format', 'mp3')  # 'mp3' or 'base64'
 
         # Validate voice blend
         is_valid, validation_result = validate_voice_blend(voice)
@@ -370,7 +370,7 @@ def synthesize():
         return jsonify({"error": str(e)}), 500
 
 
-@app.route('/tokenize', methods=['POST'])
+@app.route('/v1/tokenize', methods=['POST'])
 def tokenize():
     """Tokenize text without generating audio"""
     try:
@@ -409,7 +409,7 @@ def tokenize():
         return jsonify({"error": str(e)}), 500
 
 
-@app.route('/random-quote', methods=['GET'])
+@app.route('/v1/random-quote', methods=['GET'])
 def random_quote():
     """Get a random quote"""
     try:
@@ -426,7 +426,7 @@ def random_quote():
         })
 
 
-@app.route('/batch-synthesize', methods=['POST'])
+@app.route('/v1/batch-synthesize', methods=['POST'])
 def batch_synthesize():
     """Synthesize multiple texts at once (supports voice blending)"""
     try:
