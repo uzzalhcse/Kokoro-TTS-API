@@ -154,7 +154,7 @@ def blend_voice_references(voice_blend, ps_length):
     weights = []
 
     for voice_id, weight in voice_blend:
-        pipeline = pipelines[voice_id[0]]
+        pipeline = pipelines[voice_id[0]]  # Use appropriate pipeline for each voice
         pack = pipeline.load_voice(voice_id)
         ref_s = pack[ps_length - 1]
         voice_refs.append(ref_s)
@@ -174,7 +174,6 @@ def blend_voice_references(voice_blend, ps_length):
 
     return blended_ref
 
-
 @spaces.GPU(duration=30)
 def forward_gpu(ps, ref_s, speed):
     return models[True](ps, ref_s, speed)
@@ -184,14 +183,15 @@ def generate_audio_with_blend(text, voice_blend, speed=1, use_gpu=CUDA_AVAILABLE
     """Generate audio from text using voice blending"""
     text = text if CHAR_LIMIT is None else text.strip()[:CHAR_LIMIT]
 
-    # Use the first voice's pipeline for tokenization (they should be compatible)
+    # CHANGED: Use primary voice's pipeline but handle multi-language
     primary_voice = voice_blend[0][0]
     pipeline = pipelines[primary_voice[0]]
 
     use_gpu = use_gpu and CUDA_AVAILABLE
 
+    # Process text with primary voice's pipeline
     for _, ps, _ in pipeline(text, primary_voice, speed):
-        # Blend voice references
+        # Blend voice references (now supports multi-language)
         blended_ref = blend_voice_references(voice_blend, len(ps))
 
         try:
@@ -244,10 +244,11 @@ def validate_voice_blend(voice_string):
     try:
         voice_blend = parse_voice_blend(voice_string)
 
-        # Check for language compatibility
-        languages = set(voice_id[0] for voice_id, _ in voice_blend)
-        if len(languages) > 1:
-            return False, f"Cannot mix voices from different languages: {languages}"
+        # REMOVED: Language compatibility check
+        # OLD CODE (REMOVE THIS):
+        # languages = set(voice_id[0] for voice_id, _ in voice_blend)
+        # if len(languages) > 1:
+        #     return False, f"Cannot mix voices from different languages: {languages}"
 
         return True, voice_blend
     except ValueError as e:
@@ -260,13 +261,14 @@ def home():
     """API information"""
     return jsonify({
         "service": "Kokoro-TTS REST API with Voice Blending",
-        "version": "2.0.1",
-        "description": "Text-to-Speech API using Kokoro-82M model with voice blending support",
+        "version": "2.0.2",  # Updated version
+        "description": "Text-to-Speech API using Kokoro-82M model with multi-language voice blending support",
         "voice_blending": {
-            "description": "Mix multiple voices to create custom blended voices",
+            "description": "Mix multiple voices to create custom blended voices (supports multi-language)",
             "format": "voice1(weight1)+voice2(weight2)+...",
             "example": "af_nicole(1)+am_michael(1)",
-            "limitations": "Voices must be from the same language (a* or b*)"
+            "multi_language_example": "af_nicole(1)+bf_isabella(1)",  # NEW
+            "note": "Multi-language blending now supported! Primary voice determines text processing."  # UPDATED
         },
         "response_format": {
             "description": "Output format for audio",
@@ -274,7 +276,7 @@ def home():
             "default": "mp3"
         },
         "endpoints": {
-            "/synthesize": "POST - Generate speech from text (supports voice blending)",
+            "/synthesize": "POST - Generate speech from text (supports multi-language voice blending)",
             "/voices": "GET - List available voices",
             "/health": "GET - Health check",
             "/random-quote": "GET - Get a random quote",
@@ -283,6 +285,8 @@ def home():
         "cuda_available": CUDA_AVAILABLE,
         "character_limit": CHAR_LIMIT
     })
+
+
 
 
 @app.route('/health', methods=['GET'])
@@ -313,7 +317,8 @@ def get_voices():
         "voice_blending": {
             "description": "You can blend voices using the format: voice1(weight1)+voice2(weight2)",
             "example": "af_nicole(1)+am_michael(1)",
-            "note": "Voices must be from the same language group"
+            "multi_language_example": "af_nicole(1)+bf_isabella(1)",  # NEW
+            "note": "Multi-language blending is now supported! The first voice determines text processing."  # UPDATED
         }
     })
 
@@ -330,11 +335,16 @@ def validate_blend():
         is_valid, result = validate_voice_blend(voice_string)
 
         if is_valid:
+            # Get unique languages in the blend
+            languages = list(set(v[0] for v, w in result))
+
             return jsonify({
                 "valid": True,
                 "voice_blend": [{"voice": v, "weight": w} for v, w in result],
                 "total_voices": len(result),
-                "language": result[0][0][0]  # First character indicates language
+                "languages": languages,  # NEW: Show all languages involved
+                "primary_language": result[0][0][0],  # First voice's language
+                "is_multi_language": len(languages) > 1  # NEW: Flag for multi-language
             })
         else:
             return jsonify({
